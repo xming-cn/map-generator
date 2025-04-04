@@ -1,0 +1,514 @@
+import uuid
+import random
+from typing import Literal
+from PIL import Image, ImageDraw
+from dataclasses import dataclass
+
+@dataclass
+class Room:
+    topLeft: tuple[int, int]
+    size: tuple[int, int]
+    color: str
+    description: str = ''
+    id: uuid.UUID = uuid.uuid4()
+    
+    def __hash__(self):
+        return hash(self.id)
+
+@dataclass
+class Edge:
+    start: tuple[int, int]
+    direction: Literal['Horizontal', 'Vertical']
+
+GENERATOR_COUNT = 1
+GRID_WIDTH, GRID_HEIGHT = 9, 9
+PAGE_MARGIN = 0
+OBJECT_MARGIN = 3
+MAP_LENGTH = 512
+EDGE_WIDTH = 15
+
+# GENERATOR_COUNT = 3
+# GRID_WIDTH, GRID_HEIGHT = 5, 5
+# PAGE_MARGIN = 8
+# OBJECT_MARGIN = 4
+# MAP_LENGTH = 512
+# EDGE_WIDTH = 20
+
+class Map:
+    def __init__(self, width: int, height: int) -> None:
+        self.width = width
+        self.height = height
+        self.rooms: list[Room] = []
+        self.edges: list[Edge] = []
+
+    def add_room(self, room: Room):
+        self.rooms.append(room)
+    
+    def add_edge(self, edge: Edge):
+        self.edges.append(edge)
+    
+    def get_grid_cell_size(self, pos: tuple[int, int]) -> tuple[int, int]:
+        cell_width = (MAP_LENGTH - PAGE_MARGIN * 2) // self.width
+        cell_height = (MAP_LENGTH - PAGE_MARGIN * 2) // self.height
+        return cell_width, cell_height
+    
+    def get_grid_cell_topLeft(self, pos: tuple[int, int]) -> tuple[int, int]:
+        cell_width, cell_height = self.get_grid_cell_size(pos)
+        return PAGE_MARGIN + (pos[0]-1) * cell_width, PAGE_MARGIN + (pos[1]-1) * cell_height
+    
+    def get_room(self, pos: tuple[int, int]) -> Room | None:
+        for room in self.rooms:
+            if pos[0] >= room.topLeft[0] and pos[0] < room.topLeft[0] + room.size[0] and \
+               pos[1] >= room.topLeft[1] and pos[1] < room.topLeft[1] + room.size[1]:
+                return room
+        return None
+    
+    def img(self) -> Image.Image:
+        img = Image.new('RGB', (MAP_LENGTH, MAP_LENGTH), (255, 255, 255))
+        draw = ImageDraw.Draw(img)
+        
+        # 预定义颜色映射，确保每个房间类型有不同的颜色
+        color_map = {
+            'start': '#007D3C',
+            'battle': '#BA5D03',
+            'event': '#21A1B3',
+            'rest': '#CC2BB1',
+            'elites': '#8E0668',
+            'blessing': '#FCC737',
+            'boss': '#730505',
+            'shop': '#3E3CD8',
+        }
+        
+        # draw edges
+        for edge in self.edges:
+            cell_width, cell_height = self.get_grid_cell_size(edge.start)
+            left, top = self.get_grid_cell_topLeft(edge.start)
+            start_left = left + cell_width // 2
+            start_top = top + cell_height // 2
+            if edge.direction == 'Horizontal':
+                end_left = start_left + cell_width
+                end_top = start_top
+            elif edge.direction == 'Vertical':
+                end_left = start_left
+                end_top = start_top + cell_height
+            draw.line([start_left, start_top, end_left, end_top], fill='#00008B', width=EDGE_WIDTH)
+        
+        # draw rooms
+        default_color = 0xAEA8A5
+        for room in self.rooms:
+            color = color_map.get(room.color)
+            if not color: 
+                color = default_color
+                default_color -= 0x040404
+            
+            cell_width, cell_height = self.get_grid_cell_size(room.topLeft)
+            left, top = self.get_grid_cell_topLeft(room.topLeft)
+            right = left + cell_width * room.size[0]
+            bottom = top + cell_height * room.size[1]
+            left, top, right, bottom = left + OBJECT_MARGIN, top + OBJECT_MARGIN, right - OBJECT_MARGIN, bottom - OBJECT_MARGIN
+            
+            draw.rectangle([left, top, right, bottom], fill=color)
+            draw.text((left + OBJECT_MARGIN, top + OBJECT_MARGIN), room.color + '\n' + room.description, fill=(0, 0, 0))
+        
+        # draw empty grid cells
+        for x in range(1, self.width + 1):
+            for y in range(1, self.height + 1):
+                if not self.get_room((x, y)):
+                    cell_width, cell_height = self.get_grid_cell_size((x, y))
+                    left, top = self.get_grid_cell_topLeft((x, y))
+                    right = left + cell_width
+                    bottom = top + cell_height
+                    draw.rectangle([left + OBJECT_MARGIN, top + OBJECT_MARGIN, right - OBJECT_MARGIN, bottom - OBJECT_MARGIN], fill=(240, 240, 240))
+                    draw.text((left + OBJECT_MARGIN, top + OBJECT_MARGIN), 'empty', fill=(0, 0, 0), )
+        
+        return img
+
+class MapGenerator:
+    def __init__(self, width: int, height: int) -> None:
+        self.unavailable_pos: set[tuple[int, int]] = set()
+        self.available_pos: set[tuple[int, int]] = set()
+        self.pending_pos: set[tuple[int, int]] = set()
+        self.pending_room: list[Room] = []
+        self.room_types: dict[tuple[int, int], str] = {}
+        self.edges: list[Edge] = []
+        self.distance_to_start: dict[Room, int] = {}
+        self.distance_to_start_path: dict[Room, list[Room]] = {}
+        
+        self.width = width
+        self.height = height
+        for x in range(1, width + 1):
+            for y in range(1, height + 1):
+                self.unavailable_pos.add((x, y))
+
+    def set_available_pos(self, pos: tuple[int, int]):
+        if pos in self.unavailable_pos:
+            self.available_pos.add(pos)
+            self.unavailable_pos.remove(pos)
+    
+    def set_pending_pos(self, pos: tuple[int, int]):
+        self.pending_pos.add(pos)
+        self.available_pos.discard(pos)
+        self.unavailable_pos.discard(pos)
+        self.set_available_pos((pos[0] - 1, pos[1]))
+        self.set_available_pos((pos[0] + 1, pos[1]))
+        self.set_available_pos((pos[0], pos[1] - 1))
+        self.set_available_pos((pos[0], pos[1] + 1))
+
+    def get_neighboring_pending_pos(self, pos: tuple[int, int]) -> list[tuple[int, int]]:
+        neighbors = []
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            neighbor = (pos[0] + dx, pos[1] + dy)
+            if neighbor in self.pending_pos:
+                neighbors.append(neighbor)
+        return neighbors
+
+    def is_room_connected(self, roomA: Room, roomB: Room) -> bool:
+        is_adjacent = self.check_adjacent(roomA, roomB)
+        has_edge = False
+        for edge in self.edges:
+            edge_start = edge.start
+            edge_end = (edge_start[0] + (1 if edge.direction == 'Horizontal' else 0), edge_start[1] + (1 if edge.direction == 'Vertical' else 0))
+            if self.get_room(edge_start) == roomA and self.get_room(edge_end) == roomB or \
+                self.get_room(edge_start) == roomB and self.get_room(edge_end) == roomA:
+                has_edge = True
+                break
+        return is_adjacent and has_edge
+
+    def get_room(self, pos: tuple[int, int]) -> Room | None:
+        for room in self.pending_room:
+            if pos[0] >= room.topLeft[0] and pos[0] < room.topLeft[0] + room.size[0] and \
+               pos[1] >= room.topLeft[1] and pos[1] < room.topLeft[1] + room.size[1]:
+                return room
+        return None
+
+    def get_neighboring_pending_room(self, room: Room) -> list[Room]:
+        neighbors = []
+        for room_pos_x in range(room.topLeft[0], room.topLeft[0] + room.size[0]):
+            for room_pos_y in range(room.topLeft[1], room.topLeft[1] + room.size[1]):
+                pos = (room_pos_x, room_pos_y)
+                for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    neighbor_room = self.get_room((pos[0] + dx, pos[1] + dy))
+                    if neighbor_room and neighbor_room not in neighbors \
+                            and neighbor_room != room\
+                            and self.is_room_connected(room, neighbor_room):
+                        neighbors.append(neighbor_room)
+        return neighbors
+    
+    def is_room_leaf(self, room: Room) -> bool:
+        neighbors = self.get_neighboring_pending_room(room)
+        return len(neighbors) == 1
+    
+    # 辅助函数：精确检测两个房间是否相邻
+    def check_adjacent(self, a, b):
+        a_left, a_top = a.topLeft
+        a_right = a_left + a.size[0]
+        a_bottom = a_top + a.size[1]
+
+        b_left, b_top = b.topLeft
+        b_right = b_left + b.size[0]
+        b_bottom = b_top + b.size[1]
+
+        # 水平相邻
+        horizontal = (a_right == b_left or b_right == a_left) and \
+                    (a_top < b_bottom and a_bottom > b_top)
+        
+        # 垂直相邻
+        vertical = (a_bottom == b_top or b_bottom == a_top) and \
+                (a_left < b_right and a_right > b_left)
+        
+        return horizontal or vertical
+
+    def generate(self):
+        start_pos = (random.choice([1, self.width]), random.randint(1, self.height)) if random.random() < 0.5 \
+            else (random.randint(1, self.width), random.choice([1, self.height]))
+        self.room_types[start_pos] = 'start'
+        self.set_pending_pos(start_pos)
+        
+        # 添加标记来追踪起始房间是否已连接
+        start_room_connected = False
+        # 用于追踪已连接的位置
+        connected_positions = {start_pos}
+        
+        while self.available_pos:
+            print('generate', self.available_pos)
+            # 优先选择与已连接位置相邻的可用位置
+            available_connected = [pos for pos in self.available_pos 
+                                if any((pos[0] + dx, pos[1] + dy) in connected_positions 
+                                     for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)])]
+            
+            if available_connected:
+                pos = random.choice(available_connected)
+            else:
+                # 如果没有相邻的可用位置，随机选择（这种情况不应该发生在连通图中）
+                pos = random.choice(list(self.available_pos))
+            
+            self.available_pos.remove(pos)
+            self.set_pending_pos(pos)
+            self.room_types[pos] = 'pending'
+            
+            # 获取已连接的邻居位置
+            connected_neighbors = [n for n in self.get_neighboring_pending_pos(pos) if n in connected_positions]
+            
+            if connected_neighbors:
+                # 如果当前位置或邻居位置是起始房间，需要特殊处理
+                is_start_involved = pos == start_pos or any(n == start_pos for n in connected_neighbors)
+                
+                if is_start_involved:
+                    if start_room_connected:
+                        # 如果起始房间已经连接，从连接邻居中移除起始房间
+                        connected_neighbors = [n for n in connected_neighbors if n != start_pos]
+                    else:
+                        # 如果起始房间未连接，强制选择与起始房间的连接
+                        connected_neighbors = [start_pos]
+                        start_room_connected = True
+                
+                # 随机选择一个已连接的邻居进行连接
+                if not connected_neighbors: continue
+                neighbor = random.choice(connected_neighbors)
+                
+                if pos[0] == neighbor[0]:
+                    edge_start = neighbor if neighbor[1] < pos[1] else pos
+                    self.edges.append(Edge(edge_start, 'Vertical'))
+                else:
+                    edge_start = neighbor if neighbor[0] < pos[0] else pos
+                    self.edges.append(Edge(edge_start, 'Horizontal'))
+                
+                # 将当前位置添加到已连接集合
+                connected_positions.add(pos)
+        
+        for room in self.pending_pos:
+            self.pending_room.append(Room(room, (1, 1), self.room_types[room]))
+        
+        # Randomly merge some neighboring connected rooms
+        for _ in range(self.width * self.height // 2):
+            room = random.choice(self.pending_room)
+            neighbors = self.get_neighboring_pending_room(room)
+            if not neighbors: continue
+            neighbor = random.choice(neighbors)
+            
+            if room.color != neighbor.color: continue
+            if room.size != (1, 1) or neighbor.size != (1, 1): continue
+            
+            same_row = room.topLeft[1] == neighbor.topLeft[1]
+            same_col = room.topLeft[0] == neighbor.topLeft[0]
+            
+            new_top_left = (min(room.topLeft[0], neighbor.topLeft[0]), room.topLeft[1]) if same_row else (room.topLeft[0], min(room.topLeft[1], neighbor.topLeft[1]))
+            new_size = (room.size[0] + neighbor.size[0], room.size[1]) if same_row else (room.size[0], room.size[1] + neighbor.size[1])
+            new_room = Room(new_top_left, new_size, room.color)
+            self.pending_room.remove(room)
+            self.pending_room.remove(neighbor)
+            self.pending_room.append(new_room)
+            if self.is_room_leaf(new_room):
+                self.pending_room.append(room)
+                self.pending_room.append(neighbor)
+                self.pending_room.remove(new_room)
+                continue
+            
+            if random.random() < 0.7:
+                merger_neighbors = self.get_neighboring_pending_room(new_room)
+                if random.random() < 0.5:
+                    # 同方向延长 1x3 或 3x1
+                    for neighbor in merger_neighbors:
+                        if neighbor.size != (1, 1): continue
+                        if neighbor.color != new_room.color: continue
+                        if same_row and not neighbor.topLeft[1] == new_room.topLeft[1]: continue
+                        if same_col and not neighbor.topLeft[0] == new_room.topLeft[0]: continue
+                        
+                        merger_top_left = (min(new_room.topLeft[0], neighbor.topLeft[0]), new_room.topLeft[1]) if same_row \
+                            else (new_room.topLeft[0], min(new_room.topLeft[1], neighbor.topLeft[1]))
+                        
+                        merger_size = (new_room.size[0] + neighbor.size[0], new_room.size[1]) if same_row \
+                            else (new_room.size[0], new_room.size[1] + neighbor.size[1])
+                        merger_room = Room(merger_top_left, merger_size, new_room.color)
+                        
+                        print('merger 1x3', new_room, neighbor, merger_room)
+                        self.pending_room.remove(neighbor)
+                        self.pending_room.remove(new_room)
+                        self.pending_room.append(merger_room)
+                        if self.is_room_leaf(merger_room):
+                            self.pending_room.append(neighbor)
+                            self.pending_room.append(new_room)
+                            self.pending_room.remove(merger_room)
+                            continue
+                        break
+                else:
+                    # 不同方向延长 2x2
+                    if same_row:
+                        neighbor_to_merge = (
+                            (self.get_room((new_room.topLeft[0], new_room.topLeft[1] - 1)), self.get_room((new_room.topLeft[0] + 1, new_room.topLeft[1] - 1))), 
+                            (self.get_room((new_room.topLeft[0], new_room.topLeft[1] + 1)), self.get_room((new_room.topLeft[0] + 1, new_room.topLeft[1] + 1))), 
+                        )
+                    elif same_col:
+                        neighbor_to_merge = (
+                            (self.get_room((new_room.topLeft[0] + 1, new_room.topLeft[1])), self.get_room((new_room.topLeft[0] + 1, new_room.topLeft[1] + 1))), 
+                            (self.get_room((new_room.topLeft[0] - 1, new_room.topLeft[1])), self.get_room((new_room.topLeft[0] - 1, new_room.topLeft[1] + 1))), 
+                        )
+                        
+                    for neighbor1, neighbor2 in neighbor_to_merge:
+                        if not (neighbor1 in merger_neighbors or neighbor2 in merger_neighbors): continue
+                        if not (neighbor1 in merger_neighbors and neighbor2 in self.get_neighboring_pending_room(neighbor1) \
+                                or neighbor2 in merger_neighbors and neighbor1 in self.get_neighboring_pending_room(neighbor2)):
+                            continue
+                        if neighbor1.color != new_room.color: continue
+                        if neighbor2.color != new_room.color: continue
+                        if not neighbor1.size == neighbor2.size == (1, 1): continue
+
+                        if not neighbor1.color == neighbor2.color == new_room.color: continue
+                        merger_top_left = (min(neighbor1.topLeft[0], neighbor2.topLeft[0], new_room.topLeft[0]), min(neighbor1.topLeft[1], neighbor2.topLeft[1], new_room.topLeft[1]))
+                        merger_size = (2, 2)
+                        merger_room = Room(merger_top_left, merger_size, new_room.color)
+                        print('merger 2x2', new_room, neighbor1, neighbor2, merger_room)
+                        self.pending_room.remove(neighbor1)
+                        self.pending_room.remove(neighbor2)
+                        self.pending_room.remove(new_room)
+                        self.pending_room.append(merger_room)
+                        if self.is_room_leaf(merger_room):
+                            self.pending_room.append(neighbor1)
+                            self.pending_room.append(neighbor2)
+                            self.pending_room.append(new_room)
+                            self.pending_room.remove(merger_room)
+                            continue
+                        break
+        
+        for room in self.pending_room:
+            if self.is_room_leaf(room): room.description += 'leaf\n'
+        
+        self.bfs(self.get_room(start_pos))
+        for room, distance_to_start in self.distance_to_start.items():
+            room.description += str(distance_to_start) + '\n'
+        
+        # 房间染色
+        # 1. 最远叶子房间设为 boss，随机一个叶子设为 shop
+        # 2. 主路线中间房间设为 rest
+        # 3. 其他房间随机分配
+
+        longest_distance = max(self.distance_to_start.values())
+        non_leaf_choices = ['battle', 'battle', 'elites']
+        pending_leaf_rooms = []
+        pending_non_leaf_rooms = []
+
+        # 分离待处理房间（按叶/非叶分类）
+        for room in self.pending_room:
+            if room.color != 'pending': continue
+            if self.is_room_leaf(room):
+                pending_leaf_rooms.append(room)
+            else:
+                pending_non_leaf_rooms.append(room)
+
+        random.shuffle(pending_leaf_rooms)
+        random.shuffle(pending_non_leaf_rooms)
+
+        # 处理商店房间
+        if pending_leaf_rooms:
+            shop_room = pending_leaf_rooms.pop(0)
+            shop_room.color = 'shop'
+
+        # 处理Boss房间和其他叶子房间
+        boss_room = None
+        original_longest = longest_distance  # 保留原始最长距离值
+        for room in pending_leaf_rooms:
+            if room in self.distance_to_start and boss_room is None and self.distance_to_start[room] == original_longest:
+                room.color = 'boss'
+                boss_room = room  # 记录boss房间用于后续路径查找
+            else:
+                room.color = random.choice(['event', 'blessing'])
+
+        # 处理Rest房间（主路线中间节点）
+        if boss_room:
+            main_path = self.distance_to_start_path.get(boss_room, [])
+            if main_path:
+                rest_index = len(main_path) // 2
+                left = right = rest_index
+
+                while left >= 0 or right < len(main_path):
+                    if left >= 0 and main_path[left].size == (1, 1):
+                        rest_index = left
+                        break
+                    if right < len(main_path) and main_path[right].size == (1, 1):
+                        rest_index = right
+                        break
+                    left -= 1
+                    right += 1
+
+                rest_room = main_path[rest_index]
+                rest_room.color = 'rest'
+
+        # 处理非叶子房间（动态调整概率）
+        for room in pending_non_leaf_rooms:
+            # 如果已经是rest房间则跳过（可能由其他逻辑设置）
+            if room.color == 'rest': continue
+            
+            if room in self.distance_to_start and self.distance_to_start[room] < 3:
+                room.color = 'battle'
+            else:
+                room.color = random.choice(non_leaf_choices)
+                if room.color == 'elites':
+                    non_leaf_choices.append('battle')
+        
+        print('主路线:')
+        for room in self.distance_to_start_path[boss_room]:
+            room.description += 'main_path\n'
+            print(room)
+    
+    # 计算所有房间到起点的距离
+    def bfs(self, start: Room):
+        queue = [start]
+        visited = {start}
+        self.distance_to_start[start] = 0
+        
+        while queue:
+            current = queue.pop(0)
+            for neighbor in self.get_neighboring_pending_room(current):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+                    self.distance_to_start[neighbor] = self.distance_to_start[current] + 1
+                    self.distance_to_start_path[neighbor] = self.distance_to_start_path.get(current, []) + [current]
+                    if neighbor not in self.pending_room:
+                        self.pending_room.append(neighbor)
+    
+    def img(self):
+        map = Map(self.width, self.height)
+        for room in self.pending_room:
+            map.add_room(room)
+        for edge in self.edges:
+            map.add_edge(edge)
+        return map.img()
+
+def show_grave():
+    map = Map(4, 3)
+
+    map.add_room(Room((1, 3), (1, 1), 'start'))
+    map.add_room(Room((1, 2), (1, 1), 'battle'))
+    map.add_room(Room((1, 1), (1, 1), 'event'))
+    map.add_room(Room((2, 1), (1, 1), 'rest'))
+    map.add_room(Room((2, 2), (2, 1), 'elites'))
+    map.add_room(Room((2, 3), (1, 1), 'blessing'))
+    map.add_room(Room((3, 3), (1, 1), 'battle'))
+    map.add_room(Room((3, 1), (2, 1), 'boss'))
+    map.add_room(Room((4, 2), (1, 1), 'event'))
+
+    map.add_edge(Edge((1, 2), 'Vertical'))
+    map.add_edge(Edge((1, 1), 'Vertical'))
+    map.add_edge(Edge((1, 1), 'Horizontal'))
+    map.add_edge(Edge((2, 1), 'Vertical'))
+    map.add_edge(Edge((2, 2), 'Vertical'))
+    map.add_edge(Edge((3, 2), 'Vertical'))
+    map.add_edge(Edge((3, 2), 'Horizontal'))
+    map.add_edge(Edge((4, 1), 'Vertical'))
+
+    map.img().show()
+
+
+imgs = []
+
+for _ in range(GENERATOR_COUNT):
+    generator = MapGenerator(GRID_WIDTH, GRID_HEIGHT)
+    generator.generate()
+    img = generator.img()
+    imgs.append(img)
+
+img = Image.new('RGB', (min(GENERATOR_COUNT, 4) * MAP_LENGTH, ((GENERATOR_COUNT + 3) // 4) * MAP_LENGTH), (255, 255, 255))
+for i in range(GENERATOR_COUNT):
+    img.paste(imgs[i], (i % 4 * MAP_LENGTH, i // 4 * MAP_LENGTH))
+img.show()
