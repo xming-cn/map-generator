@@ -12,11 +12,15 @@ if 'mainroad_ratio' not in st.session_state:
 if 'room_count' not in st.session_state:
     st.session_state.room_count = 20
 
+if 'merge_ratio' not in st.session_state:
+    st.session_state.merge_ratio = 20
+
 if 'dungen' not in st.session_state:
     st.session_state.current_step = 0
     config = GeneratorConfig(
         room_count=st.session_state.room_count, 
         mainroad_ratio=st.session_state.mainroad_ratio,
+        merge_ratio=st.session_state.merge_ratio,
         image_size=IMAGE_SIZE
     )
     st.session_state.dungen = MapGenerator(config)
@@ -29,6 +33,7 @@ def regenerate_map(force=False):
         config = GeneratorConfig(
             room_count=st.session_state.room_count, 
             mainroad_ratio=st.session_state.mainroad_ratio,
+            merge_ratio=st.session_state.merge_ratio,
             image_size=IMAGE_SIZE
         )
         st.session_state.dungen = MapGenerator(config)
@@ -64,6 +69,11 @@ with st.sidebar:
     mainroad_ratio = st.slider("主路比例", min_value=1, max_value=100, value=35)
     if mainroad_ratio / 100 != st.session_state.mainroad_ratio:
         st.session_state.mainroad_ratio = mainroad_ratio / 100
+        regenerate_map(force=True)
+        
+    merge_ratio = st.slider("合并比例", min_value=1, max_value=200, value=50)
+    if merge_ratio / 100 != st.session_state.merge_ratio:
+        st.session_state.merge_ratio = merge_ratio / 100
         regenerate_map(force=True)
 
 # 显示地图
