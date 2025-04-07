@@ -1,16 +1,9 @@
 import random
-from typing import Optional, List, Set, Dict, Tuple, cast, Any
-from PIL import Image, ImageDraw
+from typing import Optional, List, Set, Dict, Tuple, cast
+from PIL import Image
 from models import Room, Edge
 from renderer import MapRenderer
-from config import RoomType
-
-GENERATOR_COUNT = 1
-GRID_WIDTH, GRID_HEIGHT = 9, 9
-PAGE_MARGIN = 0
-OBJECT_MARGIN = 3
-MAP_LENGTH = 512
-EDGE_WIDTH = 15
+from config import RoomType, MapConfig, DEFAULT_CONFIG
 
 
 # 颜色映射
@@ -38,93 +31,20 @@ class Map:
     def add_edge(self, edge: Edge) -> None:
         self.edges.append(edge)
     
-    def get_grid_cell_size(self, pos: Tuple[int, int]) -> Tuple[int, int]:
-        cell_width = (MAP_LENGTH - PAGE_MARGIN * 2) // self.width
-        cell_height = (MAP_LENGTH - PAGE_MARGIN * 2) // self.height
-        return cell_width, cell_height
-    
-    def get_grid_cell_topLeft(self, pos: Tuple[int, int]) -> Tuple[int, int]:
-        cell_width, cell_height = self.get_grid_cell_size(pos)
-        return PAGE_MARGIN + (pos[0]-1) * cell_width, PAGE_MARGIN + (pos[1]-1) * cell_height
-    
     def get_room(self, pos: Tuple[int, int]) -> Optional[Room]:
         for room in self.rooms:
             if pos[0] >= room.topLeft[0] and pos[0] < room.topLeft[0] + room.size[0] and \
                pos[1] >= room.topLeft[1] and pos[1] < room.topLeft[1] + room.size[1]:
                 return room
         return None
-    
-    def draw_edges(self, draw: Any) -> None:
-        for edge in self.edges:
-            cell_width, cell_height = self.get_grid_cell_size(edge.start)
-            left, top = self.get_grid_cell_topLeft(edge.start)
-            start_left = left + cell_width // 2
-            start_top = top + cell_height // 2
-            
-            if edge.direction == 'Horizontal':
-                end_left = start_left + cell_width
-                end_top = start_top
-            else:  # Vertical
-                end_left = start_left
-                end_top = start_top + cell_height
-                
-            draw.line([start_left, start_top, end_left, end_top], 
-                     fill='#00008B', width=EDGE_WIDTH)
-    
-    def draw_rooms(self, draw: Any) -> None:
-        default_color = 0xAEA8A5
-        for room in self.rooms:
-            color = COLOR_MAP.get(room.color)
-            if not color: 
-                color = f'#{default_color:06x}'
-                default_color -= 0x040404
-            
-            cell_width, cell_height = self.get_grid_cell_size(room.topLeft)
-            left, top = self.get_grid_cell_topLeft(room.topLeft)
-            right = left + cell_width * room.size[0]
-            bottom = top + cell_height * room.size[1]
-            
-            # Apply margins
-            left, top = left + OBJECT_MARGIN, top + OBJECT_MARGIN
-            right, bottom = right - OBJECT_MARGIN, bottom - OBJECT_MARGIN
-            
-            draw.rectangle([left, top, right, bottom], fill=color)
-            draw.text((left + OBJECT_MARGIN, top + OBJECT_MARGIN), 
-                     f'{room.color}\n{room.description}', fill=(0, 0, 0))
-    
-    def draw_empty_cells(self, draw: Any) -> None:
-        for x in range(1, self.width + 1):
-            for y in range(1, self.height + 1):
-                if not self.get_room((x, y)):
-                    cell_width, cell_height = self.get_grid_cell_size((x, y))
-                    left, top = self.get_grid_cell_topLeft((x, y))
-                    right = left + cell_width
-                    bottom = top + cell_height
-                    
-                    # Apply margins
-                    left, top = left + OBJECT_MARGIN, top + OBJECT_MARGIN
-                    right, bottom = right - OBJECT_MARGIN, bottom - OBJECT_MARGIN
-                    
-                    draw.rectangle([left, top, right, bottom], fill=(240, 240, 240))
-                    draw.text((left + OBJECT_MARGIN, top + OBJECT_MARGIN), 
-                            'empty', fill=(0, 0, 0))
-    
-    def img(self) -> Image.Image:
-        img = Image.new('RGB', (MAP_LENGTH, MAP_LENGTH), (255, 255, 255))
-        draw = ImageDraw.Draw(img)
-        
-        self.draw_edges(draw)
-        self.draw_rooms(draw)
-        self.draw_empty_cells(draw)
-        
-        return img
 
 class MapGenerator:
     """地图生成器类，负责生成随机地图"""
     
-    def __init__(self, width: int, height: int) -> None:
-        self.width = width
-        self.height = height
+    def __init__(self, config: MapConfig = DEFAULT_CONFIG) -> None:
+        self.config = config
+        self.width = config.grid_width
+        self.height = config.grid_height
         self.unavailable_pos: Set[Tuple[int, int]] = set()
         self.available_pos: Set[Tuple[int, int]] = set()
         self.pending_pos: Set[Tuple[int, int]] = set()
@@ -135,8 +55,8 @@ class MapGenerator:
         self.distance_to_start_path: Dict[Room, List[Room]] = {}
         
         # 初始化所有位置为不可用
-        for x in range(1, width + 1):
-            for y in range(1, height + 1):
+        for x in range(1, self.width + 1):
+            for y in range(1, self.height + 1):
                 self.unavailable_pos.add((x, y))
 
     def set_available_pos(self, pos: Tuple[int, int]) -> None:
@@ -330,7 +250,7 @@ class MapGenerator:
                 continue
             
             # 尝试进一步合并
-            if random.random() < 0.7:
+            if random.random() < self.config.merge_chance:
                 self._try_further_merge(new_room, same_row, same_col)
 
     def _try_further_merge(self, room: Room, same_row: bool, same_col: bool) -> None:
@@ -592,17 +512,3 @@ def show_grave() -> None:
     renderer.add_edge(Edge((4, 1), 'Vertical'))
 
     renderer.render().show()
-
-if __name__ == '__main__':
-    imgs = []
-
-    for _ in range(GENERATOR_COUNT):
-        generator = MapGenerator(GRID_WIDTH, GRID_HEIGHT)
-        generator.generate()
-        img = generator.render()
-        imgs.append(img)
-
-    img = Image.new('RGB', (min(GENERATOR_COUNT, 4) * MAP_LENGTH, ((GENERATOR_COUNT + 3) // 4) * MAP_LENGTH), (255, 255, 255))
-    for i in range(GENERATOR_COUNT):
-        img.paste(imgs[i], (i % 4 * MAP_LENGTH, i // 4 * MAP_LENGTH))
-    img.show()

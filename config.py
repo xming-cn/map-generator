@@ -5,11 +5,12 @@ from dataclasses import dataclass
 class MapConfig:
     """地图生成配置"""
     generator_count: int = 1
-    grid_width: int = 9
-    grid_height: int = 9
+    grid_width: int = 5
+    grid_height: int = 5
+    merge_chance: float = 0.7
     page_margin: int = 0
     object_margin: int = 3
-    map_length: int = 512
+    map_length: int = 768
     edge_width: int = 15
 
 class RoomType:
