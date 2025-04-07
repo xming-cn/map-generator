@@ -45,23 +45,24 @@ class Renderer:
     def draw_room(self, draw: ImageDraw.ImageDraw, room: Room) -> None:
         room_center = self.coordinate_to_pixel(room.coordinate)
         room_topleft = (room_center[0] - ROOM_LENGTH // 2 + 10, room_center[1] - ROOM_LENGTH // 2 + 10)
-        room_bottomright = (room_center[0] + ROOM_LENGTH // 2 - 10, room_center[1] + ROOM_LENGTH // 2 - 10)
+        room_bottomright = (
+            room_topleft[0] + room.width * ROOM_LENGTH - 20,
+            room_topleft[1] + room.height * ROOM_LENGTH - 20
+        )
         description_top_left = (room_topleft[0] + 5, room_topleft[1] + 5)
         draw.rectangle([room_topleft, room_bottomright], outline="black", fill=room.type.get_color())
         draw.text(description_top_left, room.type.name + '\n' + room.description, fill="black")
 
     def draw_edge(self, draw: ImageDraw.ImageDraw, edge: Edge) -> None:
-        v = edge.get_either()
-        w = edge.get_other(v)
-        v_center = self.coordinate_to_pixel(v.coordinate)
-        w_center = self.coordinate_to_pixel(w.coordinate)
+        v_center = self.coordinate_to_pixel(edge.vCoordinate)
+        w_center = self.coordinate_to_pixel(edge.wCoordinate)
         draw.line([v_center, w_center], fill="black", width=5)
 
 if __name__ == "__main__":
     # 示例用法
     room1 = Room(Coordinate(0, 0), 1, 1, RoomType.START, "Start Room")
     room2 = Room(Coordinate(1, 0), 1, 1, RoomType.BATTLE, "Battle Room")
-    edge = Edge(room1, room2)
+    edge = Edge(room1, room1.coordinate, room2, room2.coordinate)
     
     dungeon_map = Map([room1, room2], [edge])
     config = GeneratorConfig(image_size=(800, 600))

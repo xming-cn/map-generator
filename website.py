@@ -80,3 +80,4 @@ if auto_play:
         image_spot.image(st.session_state.dungen.imgs[current_step])
         progress.progress(current_step / (len(st.session_state.dungen.imgs) - 1))
         st.session_state.current_step = current_step
+

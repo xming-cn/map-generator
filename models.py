@@ -52,7 +52,10 @@ class Room:
 class Edge:
     """表示房间之间的连接"""
     v: Room
+    vCoordinate: Coordinate
+    
     w: Room
+    wCoordinate: Coordinate
     
     def get_other(self, room: Room) -> Room:
         return self.w if room == self.v else self.v
@@ -60,6 +63,12 @@ class Edge:
     def get_either(self) -> Room:
         return self.v
 
+    def contains(self, room: Room) -> bool:
+        return room == self.v or room == self.w
+
+    def get_room_coordinate(self, room: Room) -> Coordinate:
+        return self.vCoordinate if room == self.v else self.wCoordinate
+    
 @dataclass
 class Map:
     rooms: list[Room]
@@ -76,8 +85,18 @@ class Map:
                 return room
         return None
 
+    def get_neighbors(self, room: Room) -> list[Room]:
+        neighbors = []
+        for edge in self.edges:
+            if edge.contains(room):
+                neighbor = edge.get_other(room)
+                if neighbor not in neighbors:
+                    neighbors.append(neighbor)
+        return neighbors
+
 @dataclass
 class GeneratorConfig:
     room_count: int = 10
     mainroad_ratio: float = 0.5
     image_size: Tuple[int, int] = (800, 800)
+    merge_ratio: float = 0.4
