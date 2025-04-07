@@ -12,7 +12,7 @@ def generate_maps(config: MapConfig = DEFAULT_CONFIG) -> None:
     
     # 生成多个地图
     for _ in range(config.generator_count):
-        generator = MapGenerator(config.grid_width, config.grid_height)
+        generator = MapGenerator(config)
         generator.generate()
         img = generator.render()
         imgs.append(img)
