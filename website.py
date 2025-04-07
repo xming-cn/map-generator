@@ -75,7 +75,7 @@ image_spot.image(st.session_state.dungen.imgs[current_step])
 if auto_play:
     progress = st.progress(current_step / (len(st.session_state.dungen.imgs) - 1))
     while current_step < len(st.session_state.dungen.imgs) - 1:
-        time.sleep(0.25)
+        time.sleep(0.45)
         current_step += 1
         image_spot.image(st.session_state.dungen.imgs[current_step])
         progress.progress(current_step / (len(st.session_state.dungen.imgs) - 1))

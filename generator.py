@@ -1,7 +1,7 @@
 from models import Map, Room, Edge, Coordinate, GeneratorConfig, RoomType
 from renderer import Renderer
 from dataclasses import dataclass
-from typing import Tuple, List
+from typing import Tuple, List, Optional
     
 import random
 class MapGenerator:
@@ -134,7 +134,7 @@ class MapGenerator:
             )
         )
 
-    def _get_second_branch_location(self, map: Map, branch_location: Coordinate, available_branch_locations: set) -> Coordinate | None:
+    def _get_second_branch_location(self, map: Map, branch_location: Coordinate, available_branch_locations: set) -> Optional[Coordinate]:
         return next(
             (Coordinate(branch_location.x + dx, branch_location.y + dy)
              for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
