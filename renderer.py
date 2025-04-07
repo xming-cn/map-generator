@@ -1,115 +1,71 @@
-from typing import List, Optional, Tuple, Any
+from models import Map, Room, Edge, Coordinate, RoomType, GeneratorConfig
+from typing import Tuple
 from PIL import Image, ImageDraw
-from models import Room, Edge
-from config import COLOR_MAP, MapConfig, DEFAULT_CONFIG
+from models import GeneratorConfig
 
-class MapRenderer:
-    """负责将地图渲染成图像"""
-    
-    def __init__(self, width: int, height: int, config: MapConfig = DEFAULT_CONFIG) -> None:
-        self.width = width
-        self.height = height
-        self.config = config
-        self.rooms: List[Room] = []
-        self.edges: List[Edge] = []
+ROOM_LENGTH = 100
+class Renderer:
+    def __init__(self, map: Map, GeneratorConfig: GeneratorConfig) -> None:
+        self.map = map
+        self.config = GeneratorConfig
+        self.calculate_center_offset()
 
-    def add_room(self, room: Room) -> None:
-        """添加房间到渲染列表"""
-        self.rooms.append(room)
-    
-    def add_edge(self, edge: Edge) -> None:
-        """添加边到渲染列表"""
-        self.edges.append(edge)
-    
-    def get_grid_cell_size(self, pos: Tuple[int, int]) -> Tuple[int, int]:
-        """计算网格单元格大小"""
-        cell_width = (self.config.map_length - self.config.page_margin * 2) // self.width
-        cell_height = (self.config.map_length - self.config.page_margin * 2) // self.height
-        return cell_width, cell_height
-    
-    def get_grid_cell_topLeft(self, pos: Tuple[int, int]) -> Tuple[int, int]:
-        """计算网格单元格左上角坐标"""
-        cell_width, cell_height = self.get_grid_cell_size(pos)
-        return (self.config.page_margin + (pos[0]-1) * cell_width, 
-                self.config.page_margin + (pos[1]-1) * cell_height)
-    
-    def get_room(self, pos: Tuple[int, int]) -> Optional[Room]:
-        """获取指定位置的房间"""
-        for room in self.rooms:
-            if pos[0] >= room.topLeft[0] and pos[0] < room.topLeft[0] + room.size[0] and \
-               pos[1] >= room.topLeft[1] and pos[1] < room.topLeft[1] + room.size[1]:
-                return room
-        return None
-    
-    def draw_edges(self, draw: Any) -> None:
-        """绘制边缘连接"""
-        for edge in self.edges:
-            cell_width, cell_height = self.get_grid_cell_size(edge.start)
-            left, top = self.get_grid_cell_topLeft(edge.start)
-            start_left = left + cell_width // 2
-            start_top = top + cell_height // 2
-            
-            if edge.direction == 'Horizontal':
-                end_left = start_left + cell_width
-                end_top = start_top
-            else:  # Vertical
-                end_left = start_left
-                end_top = start_top + cell_height
-                
-            draw.line([start_left, start_top, end_left, end_top], 
-                     fill='#00008B', width=self.config.edge_width)
-    
-    def draw_rooms(self, draw: Any) -> None:
-        """绘制房间"""
-        default_color = 0xAEA8A5
-        for room in self.rooms:
-            color = COLOR_MAP.get(room.color)
-            if not color: 
-                color = f'#{default_color:06x}'
-                default_color -= 0x040404
-            
-            cell_width, cell_height = self.get_grid_cell_size(room.topLeft)
-            left, top = self.get_grid_cell_topLeft(room.topLeft)
-            right = left + cell_width * room.size[0]
-            bottom = top + cell_height * room.size[1]
-            
-            # 应用边距
-            margin = self.config.object_margin
-            left, top = left + margin, top + margin
-            right, bottom = right - margin, bottom - margin
-            
-            draw.rectangle([left, top, right, bottom], fill=color)
-            draw.text((left + margin, top + margin), 
-                     f'{room.color}\n{room.description}', fill=(0, 0, 0))
-    
-    def draw_empty_cells(self, draw: Any) -> None:
-        """绘制空单元格"""
-        for x in range(1, self.width + 1):
-            for y in range(1, self.height + 1):
-                if not self.get_room((x, y)):
-                    cell_width, cell_height = self.get_grid_cell_size((x, y))
-                    left, top = self.get_grid_cell_topLeft((x, y))
-                    right = left + cell_width
-                    bottom = top + cell_height
-                    
-                    # 应用边距
-                    margin = self.config.object_margin
-                    left, top = left + margin, top + margin
-                    right, bottom = right - margin, bottom - margin
-                    
-                    draw.rectangle([left, top, right, bottom], fill=(240, 240, 240))
-                    draw.text((left + margin, top + margin), 
-                            'empty', fill=(0, 0, 0))
-    
+    def calculate_center_offset(self) -> None:
+        # Calculate the bounding box of all rooms
+        min_x = min(room.coordinate.x for room in self.map.rooms)
+        max_x = max(room.coordinate.x for room in self.map.rooms)
+        min_y = min(room.coordinate.y for room in self.map.rooms)
+        max_y = max(room.coordinate.y for room in self.map.rooms)
+
+        # Calculate the center of the bounding box
+        map_center_x = (min_x + max_x) // 2
+        map_center_y = (min_y + max_y) // 2
+
+        # Calculate the offset to center the map in the image
+        self.offset_x = -map_center_x * ROOM_LENGTH + self.config.image_size[0] // 2
+        self.offset_y = -map_center_y * ROOM_LENGTH + self.config.image_size[1] // 2
+
     def render(self) -> Image.Image:
-        """渲染完整地图"""
-        img = Image.new('RGB', 
-                       (self.config.map_length, self.config.map_length), 
-                       (255, 255, 255))
+        img = Image.new('RGB', (self.config.image_size[0], self.config.image_size[1]), 'white')
         draw = ImageDraw.Draw(img)
         
-        self.draw_edges(draw)
-        self.draw_rooms(draw)
-        self.draw_empty_cells(draw)
+        for edge in self.map.edges:
+            self.draw_edge(draw, edge)
         
-        return img 
+        for room in self.map.rooms:
+            self.draw_room(draw, room)
+        
+        return img
+
+    def coordinate_to_pixel(self, coord: Coordinate) -> Tuple[int, int]:
+        x = coord.x * ROOM_LENGTH + self.offset_x
+        y = coord.y * ROOM_LENGTH + self.offset_y
+        return x, y
+
+    def draw_room(self, draw: ImageDraw.ImageDraw, room: Room) -> None:
+        room_center = self.coordinate_to_pixel(room.coordinate)
+        room_topleft = (room_center[0] - ROOM_LENGTH // 2 + 10, room_center[1] - ROOM_LENGTH // 2 + 10)
+        room_bottomright = (room_center[0] + ROOM_LENGTH // 2 - 10, room_center[1] + ROOM_LENGTH // 2 - 10)
+        description_top_left = (room_topleft[0] + 5, room_topleft[1] + 5)
+        draw.rectangle([room_topleft, room_bottomright], outline="black", fill=room.type.get_color())
+        draw.text(description_top_left, room.type.name + '\n' + room.description, fill="black")
+
+    def draw_edge(self, draw: ImageDraw.ImageDraw, edge: Edge) -> None:
+        v = edge.get_either()
+        w = edge.get_other(v)
+        v_center = self.coordinate_to_pixel(v.coordinate)
+        w_center = self.coordinate_to_pixel(w.coordinate)
+        draw.line([v_center, w_center], fill="black", width=5)
+
+if __name__ == "__main__":
+    # 示例用法
+    room1 = Room(Coordinate(0, 0), 1, 1, RoomType.START, "Start Room")
+    room2 = Room(Coordinate(1, 0), 1, 1, RoomType.BATTLE, "Battle Room")
+    edge = Edge(room1, room2)
+    
+    dungeon_map = Map([room1, room2], [edge])
+    config = GeneratorConfig(image_size=(800, 600))
+    
+    renderer = Renderer(dungeon_map, config)
+    img = renderer.render()
+    img.show()  # 显示生成的图像
