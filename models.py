@@ -74,6 +74,7 @@ class Map:
     rooms: list[Room]
     edges: list[Edge]
     id: uuid.UUID = uuid.uuid4()
+    start_room: Optional[Room] = None
     
     def __hash__(self) -> int:
         return hash(self.id)

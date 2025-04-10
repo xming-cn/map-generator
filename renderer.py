@@ -44,10 +44,10 @@ class Renderer:
 
     def draw_room(self, draw: ImageDraw.ImageDraw, room: Room) -> None:
         room_center = self.coordinate_to_pixel(room.coordinate)
-        room_topleft = (room_center[0] - ROOM_LENGTH // 2 + 10, room_center[1] - ROOM_LENGTH // 2 + 10)
+        room_topleft = (room_center[0] - ROOM_LENGTH // 2 + 8, room_center[1] - ROOM_LENGTH // 2 + 8)
         room_bottomright = (
-            room_topleft[0] + room.width * ROOM_LENGTH - 20,
-            room_topleft[1] + room.height * ROOM_LENGTH - 20
+            room_topleft[0] + room.width * ROOM_LENGTH - 16,
+            room_topleft[1] + room.height * ROOM_LENGTH - 16
         )
         description_top_left = (room_topleft[0] + 5, room_topleft[1] + 5)
         draw.rectangle([room_topleft, room_bottomright], outline="black", fill=room.type.get_color())

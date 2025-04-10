@@ -66,12 +66,12 @@ with st.sidebar:
         st.session_state.room_count = room_count
         regenerate_map(force=True)
         
-    mainroad_ratio = st.slider("主路比例", min_value=1, max_value=100, value=35)
+    mainroad_ratio = st.slider("主路比例", min_value=5, max_value=100, value=35)
     if mainroad_ratio / 100 != st.session_state.mainroad_ratio:
         st.session_state.mainroad_ratio = mainroad_ratio / 100
         regenerate_map(force=True)
         
-    merge_ratio = st.slider("合并比例", min_value=1, max_value=200, value=50)
+    merge_ratio = st.slider("合并比例", min_value=0, max_value=200, value=50)
     if merge_ratio / 100 != st.session_state.merge_ratio:
         st.session_state.merge_ratio = merge_ratio / 100
         regenerate_map(force=True)
@@ -85,8 +85,9 @@ image_spot.image(st.session_state.dungen.imgs[current_step])
 if auto_play:
     progress = st.progress(current_step / (len(st.session_state.dungen.imgs) - 1))
     while current_step < len(st.session_state.dungen.imgs) - 1:
-        time.sleep(0.45)
-        current_step += 1
+        time.sleep(0.9)
+        current_step += 3
+        current_step = min(current_step, len(st.session_state.dungen.imgs) - 1)
         image_spot.image(st.session_state.dungen.imgs[current_step])
         progress.progress(current_step / (len(st.session_state.dungen.imgs) - 1))
         st.session_state.current_step = current_step
