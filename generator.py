@@ -19,12 +19,12 @@ class MapGenerator:
         map.start_room = start_room
         mainroad_length, branch_length = self._calculate_road_lengths()
         
-        available_main_road_connections = {(Coordinate(0, 0), start_room)}
-        available_branch_locations = set()
+        available_connect_expansions = {(Coordinate(0, 0), start_room)}
+        pending_coordinates = set()
         
-        self._generate_main_road(map, mainroad_length, available_main_road_connections, available_branch_locations)
+        self._generate_main_road(map, mainroad_length-1, available_connect_expansions, pending_coordinates)
         self._set_special_rooms(map)
-        self._generate_branches(map, branch_length, available_branch_locations)
+        self._generate_branches(map, branch_length, available_connect_expansions, pending_coordinates)
         
         self._merge_rooms(map)
         
@@ -47,27 +47,27 @@ class MapGenerator:
         mainroad_length = max(1, mainroad_length)
         branch_length = self.config.room_count - mainroad_length
         return mainroad_length, branch_length
-
-    def _generate_main_road(self, map: Map, mainroad_length: int, available_main_road_connections: set, available_branch_locations: set) -> None:
-        for _ in range(mainroad_length):
-            if not available_main_road_connections:
+    
+    def _generate_main_road(self, map: Map, mainroad_length: int, available_connect_expansions: set[tuple[Coordinate, Room]], pending_coordinates: set[Coordinate]) -> None:
+        previous_round_expansions: set[tuple[Coordinate, Room]] = set()
+        for expansion in available_connect_expansions:
+            previous_round_expansions.add(expansion)
+        
+        for i in range(mainroad_length):
+            if not available_connect_expansions:
                 break
-
-            new_connection_location, room = random.choice(list(available_main_road_connections))
-            available_main_road_connections.remove((new_connection_location, room))
-            
-            new_room = Room(new_connection_location, 1, 1, RoomType.PENDING)
+            this_round_expansions = random.choice(list(previous_round_expansions))
+            available_connect_expansions.remove(this_round_expansions)
+            previous_round_expansions.clear()
+            new_room = Room(this_round_expansions[0], 1, 1, RoomType.PENDING)
             map.add_room(new_room)
-            map.add_edge(Edge(room, room.coordinate, new_room, new_room.coordinate))
-            
-            available_next_coordinates = self._get_available_coordinates(map, new_connection_location, available_main_road_connections)
-            if available_next_coordinates:
-                chosen_coord = random.choice(available_next_coordinates)
-                available_main_road_connections.add((chosen_coord, new_room))
-                available_next_coordinates.remove(chosen_coord)
-                available_branch_locations.update(available_next_coordinates)
-            else:
-                available_branch_locations.update(available_next_coordinates)
+            new_edge = Edge(this_round_expansions[1], this_round_expansions[1].coordinate, new_room, new_room.coordinate)
+            map.add_edge(new_edge)
+            if i != mainroad_length - 1:
+                for expansion in self._get_available_coordinates(map, new_room.coordinate, pending_coordinates):
+                    available_connect_expansions.add((expansion, new_room))
+                    previous_round_expansions.add((expansion, new_room))
+                    pending_coordinates.add(expansion)
             self.add_step(map)
 
     def _set_special_rooms(self, map: Map) -> None:
@@ -76,7 +76,8 @@ class MapGenerator:
         map.get_index_room(map.V - 1).type = RoomType.BOSS # type: ignore
         self.add_step(map)
 
-    def _generate_branches(self, map: Map, branch_length: int, available_branch_locations: set) -> None:
+    '''
+    def _generate_branches(self, map: Map, branch_length: int, available_branch_locations: set[Coordinate]) -> None:
         branches_created = 0
         while branches_created < branch_length and available_branch_locations:
             branch_location = random.choice(list(available_branch_locations))
@@ -119,30 +120,57 @@ class MapGenerator:
                 # 更新当前房间的可用连接点
                 available_next_coordinates = self._get_available_coordinates(map, branch_location, available_branch_locations)
                 available_branch_locations.update(available_next_coordinates)
+    '''
+    
+    def _generate_branches(self, map: Map, branch_length: int, available_connect_expansions: set[tuple[Coordinate, Room]], pending_coordinates: set[Coordinate]) -> None:
+        branches_created = 0
+        while branches_created < branch_length and available_connect_expansions:
+            # this_round_expansion = random.choice(list(available_connect_expansions))
+            # available_connect_expansions.remove(this_round_expansion)
+            # current_location, from_room = this_round_expansion
+            length_to_glow = random.choice([1, 2, 2, 3])
+            length_to_glow = min(length_to_glow, branch_length - branches_created)
+            self._generator_path(map, length_to_glow, available_connect_expansions, pending_coordinates)
+            branches_created += length_to_glow
+                
+    
+    def _generator_path(self, map: Map, path_length: int, available_connect_expansions: set[tuple[Coordinate, Room]], pending_coordinates: set[Coordinate]) -> None:
+        previous_round_expansions = set()
+        for expansion in available_connect_expansions:
+            previous_round_expansions.add(expansion)
+        
+        branches_created = 0
+        while branches_created < path_length and available_connect_expansions:
+            if not previous_round_expansions: break
+            this_round_expansion = random.choice(list(previous_round_expansions))
+            available_connect_expansions.remove(this_round_expansion)
+            previous_round_expansions.clear()
 
-    def _get_available_coordinates(self, map: Map, location: Coordinate, existing_connections: set) -> List[Coordinate]:
+            current_location, from_room = this_round_expansion
+            new_room = Room(current_location, 1, 1, RoomType.PENDING)
+            new_edge = Edge(from_room, from_room.coordinate, new_room, current_location)
+            map.add_room(new_room)
+            map.add_edge(new_edge)
+            self.add_step(map)
+            branches_created += 1
+            
+            for expansion in self._get_available_coordinates(map, new_room.coordinate, pending_coordinates):
+                available_connect_expansions.add((expansion, new_room))
+                previous_round_expansions.add((expansion, new_room))
+                pending_coordinates.add(expansion)
+    
+    
+    def _get_available_coordinates(self, map: Map, location: Coordinate, excluded: set[Coordinate]) -> List[Coordinate]:
         available_next_coordinates = [
             Coordinate(location.x + dx, location.y + dy)
             for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
-            if map.get_room(Coordinate(location.x + dx, location.y + dy)) is None
-            and not any(conn == Coordinate(location.x + dx, location.y + dy) for conn in existing_connections)
-        ]
-        return [
-            coord for coord in available_next_coordinates
-            if sum(
-                1 for nx, ny in [(-1, 0), (1, 0), (0, -1), (0, 1)]
-                if map.get_room(Coordinate(coord.x + nx, coord.y + ny)) is not None
-            ) <= 2
-        ]
-
-    def _find_connected_room(self, map: Map, location: Coordinate) -> Room:
-        return next(
-            room for room in map.get_rooms()
-            if any(
-                room.coordinate == Coordinate(location.x + dx, location.y + dy)
-                for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
+            if (
+                map.get_room(Coordinate(location.x + dx, location.y + dy)) is None and
+                Coordinate(location.x + dx, location.y + dy) not in excluded
             )
-        )
+            
+        ]
+        return available_next_coordinates
 
     def _get_second_branch_location(self, map: Map, branch_location: Coordinate, available_branch_locations: set) -> Optional[Coordinate]:
         return next(
@@ -166,8 +194,7 @@ class MapGenerator:
         room1 = map.get_random_room()
         if room1 is None: return 0
         neighbors = map.get_neighbors(room1)
-        print(f'neighbors of {room1} {neighbors}')
-        if len(neighbors) <= 1: return 0
+        if not neighbors: return 0
         
         room2 = random.choice(list(neighbors)).get_other(room1)
         
@@ -175,13 +202,12 @@ class MapGenerator:
         if room1.type != RoomType.PENDING or room2.type != RoomType.PENDING: return 0
         if room1.width != 1 or room1.height != 1 or room2.width != 1 or room2.height != 1: return 0
         
-        if len(map.get_neighbors(room2)) <= 1: return 0
-        
         same_col = room1.coordinate.x == room2.coordinate.x
         same_row = room1.coordinate.y == room2.coordinate.y
         
         new_room = self._merge_room(map, room1, room2)
-        self.add_step(map)
+        if new_room is None: 
+            return 0
         
         if random.random() < self.config.further_merge_ratio:
             furthur_merge_policy = 'RANDOM'
@@ -204,8 +230,9 @@ class MapGenerator:
                 if not furthur_mergeabla: return 2
                 furthur_merge = random.choice(furthur_mergeabla).get_other(new_room)
                 furthur_new_room = self._merge_room(map, new_room, furthur_merge)
+                if furthur_new_room == None:
+                    return 1
                 self.count_1x3_room += 1
-                self.add_step(map)
             
             # merge 2x2 room
             elif furthur_merge_policy == '2x2':
@@ -236,7 +263,6 @@ class MapGenerator:
                     return (room2 in new_room_neighbors and room1 in new_room_neighbors) or \
                         (room1 in new_room_neighbors and room2 in room1_neighbors)
                 def is_all_valid_to_merge(map, new_room, rooms) -> bool:
-                    print('rooms', type(rooms), rooms)
                     room1 = rooms[0]
                     room2 = rooms[1]
                     return is_valid_to_merge(room1) and is_valid_to_merge(room2) and is_connected(map, new_room, room1, room2)
@@ -252,17 +278,19 @@ class MapGenerator:
                     return 1
 
                 furthur_merge_room_a = self._merge_room(map, furthur_mergeabla[0], furthur_mergeabla[1]) # type: ignore
-                self.add_step(map)
+                if furthur_merge_room_a is None:
+                    return 1
                 
                 furthur_merge_room = self._merge_room(map, new_room, furthur_merge_room_a)
-                self.add_step(map)
+                if furthur_merge_room is None:
+                    return 2
                 
                 self.count_2x2_room += 1
                 return 3
         
         return 1
     
-    def _merge_room(self, map: Map, room1: Room, room2: Room) -> Room:
+    def _merge_room(self, map: Map, room1: Room, room2: Room) -> Optional[Room]:
         same_col = room1.coordinate.x == room2.coordinate.x
         same_row = room1.coordinate.y == room2.coordinate.y
         
@@ -275,14 +303,12 @@ class MapGenerator:
             new_height = max(room1.height, room2.height)
             new_coordinate = Coordinate(min(room1.coordinate.x, room2.coordinate.x), min(room1.coordinate.y, room2.coordinate.y))
         else:
-            print('try to merge non-adjacent rooms')
-            print('room1', room1)
-            print('room2', room2)
             return room1
         
         new_room = Room(new_coordinate, new_width, new_height, RoomType.PENDING)
         map.add_room(new_room)
         
+        old_edges = map.get_edges()
         new_edges = []
         for edge in map.get_edges():
             connect_room = None
@@ -301,10 +327,17 @@ class MapGenerator:
                 new_room, self._adjust_coordinate_for_edge(new_room, edge.get_room_coordinate(connect_room)), 
                 other, edge.get_room_coordinate(other)
             ))
+        
         map.set_edges(new_edges)
+        
+        if len(map.get_neighbors(new_room)) <= 1:
+            map.delete_room(new_room)
+            map.set_edges(old_edges)
+            return None
         
         map.delete_room(room1)
         map.delete_room(room2)
+        self.add_step(map)
         return new_room
     
     def _adjust_coordinate_for_edge(self, room: Room, original_coord: Coordinate) -> Coordinate:

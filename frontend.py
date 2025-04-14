@@ -5,26 +5,7 @@ from generator import MapGenerator, GeneratorConfig
 
 IMAGE_SIZE = (1000, 1000)
 
-# 重新生成地图函数
-def regenerate_map(force=False):
-    if force:
-        st.session_state.current_step = 0
-        config = GeneratorConfig(
-            room_count=st.session_state.room_count, 
-            mainroad_ratio=st.session_state.mainroad_ratio,
-            merge_ratio=st.session_state.merge_ratio,
-            further_merge_ratio=st.session_state.futher_merge_ratio,
-            image_size=IMAGE_SIZE,
-            room_2x2_capacity=st.session_state.room_2x2_capacity,
-            room_1x3_capacity=st.session_state.room_1x3_capacity
-        )
-        st.session_state.dungeon = MapGenerator(config)
-        start_time = time.time()
-        st.session_state.dungeon.generate()
-        st.session_state.generation_time = time.time() - start_time
-        st.session_state.render_time = st.session_state.dungeon.render_time
         
-
 # 初始化 session_state
 if 'mainroad_ratio' not in st.session_state:
     st.session_state.mainroad_ratio = 0.35
@@ -44,9 +25,6 @@ if 'room_2x2_capacity' not in st.session_state:
 if 'room_1x3_capacity' not in st.session_state:
     st.session_state.room_1x3_capacity = 1
 
-if 'dungeon' not in st.session_state:
-    regenerate_map(force=True)
-
 if 'count_running' not in st.session_state:
     st.session_state.count_running = 0
 if 'count_leaf_rooms' not in st.session_state:
@@ -62,6 +40,30 @@ def load_report(*reports: dict):
         st.session_state.count_non_leaf_rooms += report['non_leaf_rooms']
         st.session_state.count_total_rooms += report['total_rooms']
         st.session_state.count_running += 1
+
+# 重新生成地图函数
+def regenerate_map(force=False):
+    if force:
+        st.session_state.current_step = 0
+        config = GeneratorConfig(
+            room_count=st.session_state.room_count, 
+            mainroad_ratio=st.session_state.mainroad_ratio,
+            merge_ratio=st.session_state.merge_ratio,
+            further_merge_ratio=st.session_state.futher_merge_ratio,
+            image_size=IMAGE_SIZE,
+            room_2x2_capacity=st.session_state.room_2x2_capacity,
+            room_1x3_capacity=st.session_state.room_1x3_capacity
+        )
+        st.session_state.dungeon = MapGenerator(config)
+        start_time = time.time()
+        st.session_state.dungeon.generate()
+        st.session_state.generation_time = time.time() - start_time
+        st.session_state.render_time = st.session_state.dungeon.render_time
+        load_report(st.session_state.dungeon.report)
+
+
+if 'dungeon' not in st.session_state:
+    regenerate_map(force=True)
 
 # 布局
 col1, col2, col3, col4, col5, col6 = st.columns(6)
@@ -157,10 +159,7 @@ if auto_play:
 
 progress_slot.text(f'generation time: {(st.session_state.generation_time - st.session_state.render_time) * 1000:.2f} ms')
 
-report = st.session_state.dungeon.report
-load_report(report)
-
 col1, col2, col3 = metric_bar.columns(3)
-col1.metric('Leaf', st.session_state.count_leaf_rooms, report['leaf_rooms'])
-col2.metric('Non-Leaf', st.session_state.count_non_leaf_rooms, report['non_leaf_rooms'])
-col3.metric('Total', st.session_state.count_total_rooms, report['total_rooms'])
+col1.metric('Leaf', st.session_state.count_leaf_rooms, st.session_state.dungeon.report['leaf_rooms'])
+col2.metric('Non-Leaf', st.session_state.count_non_leaf_rooms, st.session_state.dungeon.report['non_leaf_rooms'])
+col3.metric('Total', st.session_state.count_total_rooms, st.session_state.dungeon.report['total_rooms'])

@@ -29,11 +29,11 @@ class Renderer:
         img = Image.new('RGBA', (self.config.image_size[0], self.config.image_size[1]), 'white')
         draw = ImageDraw.Draw(img)
         
-        for edge in self.map.get_edges():
-            self.draw_edge(draw, edge)
-        
         for room in self.map.get_rooms():
             self.draw_room(draw, room)
+        
+        for edge in self.map.get_edges():
+            self.draw_edge(draw, edge)
         
         return img
 
@@ -56,7 +56,18 @@ class Renderer:
     def draw_edge(self, draw: ImageDraw.ImageDraw, edge: Edge) -> None:
         v_center = self.coordinate_to_pixel(edge.vCoordinate)
         w_center = self.coordinate_to_pixel(edge.wCoordinate)
-        draw.line([v_center, w_center], fill="black", width=5)
+        
+        # Calculate the 20% segment in the middle of the line
+        mid_x1 = v_center[0] + (w_center[0] - v_center[0]) * 0.38
+        mid_y1 = v_center[1] + (w_center[1] - v_center[1]) * 0.38
+        mid_x2 = v_center[0] + (w_center[0] - v_center[0]) * 0.62
+        mid_y2 = v_center[1] + (w_center[1] - v_center[1]) * 0.62
+        
+        draw.line([(mid_x1, mid_y1), (mid_x2, mid_y2)], fill="#343434", width=9)
+        # v_center = self.coordinate_to_pixel(edge.vCoordinate)
+        # w_center = self.coordinate_to_pixel(edge.wCoordinate)
+        
+        # draw.line([v_center, w_center], fill="#343434", width=9)
 
 if __name__ == "__main__":
     # 示例用法

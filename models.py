@@ -11,6 +11,11 @@ class Coordinate:
     
     def __hash__(self) -> int:
         return hash((self.x, self.y))
+    
+    def __eq__(self, value: object) -> bool:
+        if isinstance(value, Coordinate):
+            return self.x == value.x and self.y == value.y
+        return False
 
 class RoomType(Enum):
     START = 'start'
