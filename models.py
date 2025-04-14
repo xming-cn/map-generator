@@ -86,13 +86,12 @@ class Map:
                 return room
         return None
 
-    def get_neighbors(self, room: Room) -> list[Room]:
-        neighbors = []
+    def get_neighbors(self, room: Room) -> set[Room]:
+        neighbors = set()
         for edge in self.edges:
             if edge.contains(room):
                 neighbor = edge.get_other(room)
-                if neighbor not in neighbors:
-                    neighbors.append(neighbor)
+                neighbors.add(neighbor)
         return neighbors
 
 @dataclass
@@ -101,3 +100,6 @@ class GeneratorConfig:
     mainroad_ratio: float = 0.5
     image_size: Tuple[int, int] = (800, 800)
     merge_ratio: float = 0.4
+    further_merge_ratio: float = 0.7
+    room_2x2_capacity: int = 1
+    room_1x3_capacity: int = 1

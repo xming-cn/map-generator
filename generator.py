@@ -8,6 +8,8 @@ class MapGenerator:
     def __init__(self, config: GeneratorConfig):
         self.config = config
         self.imgs = []
+        self.count_1x3_room = 0
+        self.count_2x2_room = 0
 
     def generate(self) -> Map:
         map = Map([], [])
@@ -26,6 +28,8 @@ class MapGenerator:
         
         self.bfs(map, map.start_room)
         self._coloring_room(map)
+        
+        self.report = self._generator_report(map)
 
         return map
 
@@ -153,21 +157,108 @@ class MapGenerator:
         merge_times = self.config.merge_ratio * self.config.room_count
         while i < merge_times:
             success = self._merge_rooms_one(map)
-            if success: i += 1
-            else: i += 0.2
+            if not success: i += 0.01
+            else: i += success
 
-    def _merge_rooms_one(self, map: Map) -> bool:
+    def _merge_rooms_one(self, map: Map) -> int:
         room1 = random.choice(map.rooms)
         neighbors = map.get_neighbors(room1)
-        if len(neighbors) <= 1: return False
+        if len(neighbors) <= 1: return 0
         
-        room2 = random.choice(neighbors)
+        room2 = random.choice(list(neighbors))
         
-        if room1 == room2: return False
-        if room1.type != RoomType.PENDING or room2.type != RoomType.PENDING: return False
-        if room1.width != 1 or room1.height != 1 or room2.width != 1 or room2.height != 1: return False
-        if len(map.get_neighbors(room2)) <= 1: return False
+        if room1 == room2: return 0
+        if room1.type != RoomType.PENDING or room2.type != RoomType.PENDING: return 0
+        if room1.width != 1 or room1.height != 1 or room2.width != 1 or room2.height != 1: return 0
         
+        if len(map.get_neighbors(room2)) <= 1: return 0
+        
+        same_col = room1.coordinate.x == room2.coordinate.x
+        same_row = room1.coordinate.y == room2.coordinate.y
+        
+        new_room = self._merge_room(map, room1, room2)
+        self.add_step(map)
+        
+        if random.random() < self.config.further_merge_ratio:
+            furthur_merge_policy = 'RANDOM'
+            if self.count_1x3_room >= self.config.room_1x3_capacity and self.count_2x2_room >= self.config.room_2x2_capacity:
+                return 1
+            if self.count_1x3_room >= self.config.room_1x3_capacity:
+                furthur_merge_policy = '2x2'
+            elif self.count_2x2_room >= self.config.room_2x2_capacity:
+                furthur_merge_policy = '1x3'
+            else:
+                furthur_merge_policy = random.choice(['1x3', '2x2'])
+            
+            if furthur_merge_policy == '1x3':
+                furthur_mergeabla = map.get_neighbors(new_room)
+                furthur_mergeabla = filter(lambda x: x.type == RoomType.PENDING and x.width == 1 and x.height == 1, furthur_mergeabla)
+                if same_col: furthur_mergeabla = filter(lambda x: x.coordinate.x == new_room.coordinate.x, furthur_mergeabla)
+                else:        furthur_mergeabla = filter(lambda x: x.coordinate.y == new_room.coordinate.y, furthur_mergeabla)
+                furthur_mergeabla = filter(lambda x: len(map.get_neighbors(x)) > 1, furthur_mergeabla)
+                furthur_mergeabla = list(furthur_mergeabla)
+                if not furthur_mergeabla: return 2
+                furthur_merge = random.choice(furthur_mergeabla)
+                furthur_new_room = self._merge_room(map, new_room, furthur_merge)
+                self.count_1x3_room += 1
+                self.add_step(map)
+            
+            # merge 2x2 room
+            elif furthur_merge_policy == '2x2':
+                if same_row:
+                    furthur_mergeabla_side_a = (
+                        map.get_room(Coordinate(new_room.coordinate.x, new_room.coordinate.y - 1)),
+                        map.get_room(Coordinate(new_room.coordinate.x + 1, new_room.coordinate.y - 1))
+                    )
+                    furthur_mergeabla_side_b = (
+                        map.get_room(Coordinate(new_room.coordinate.x, new_room.coordinate.y + 1)),
+                        map.get_room(Coordinate(new_room.coordinate.x + 1, new_room.coordinate.y + 1))
+                    )
+                else:
+                    furthur_mergeabla_side_a = (
+                        map.get_room(Coordinate(new_room.coordinate.x - 1, new_room.coordinate.y)),
+                        map.get_room(Coordinate(new_room.coordinate.x - 1, new_room.coordinate.y + 1))
+                    )
+                    furthur_mergeabla_side_b = (
+                        map.get_room(Coordinate(new_room.coordinate.x + 1, new_room.coordinate.y)),
+                        map.get_room(Coordinate(new_room.coordinate.x + 1, new_room.coordinate.y + 1))
+                    )
+                
+                def is_valid_to_merge(room) -> bool:
+                    return room is not None and room.type == RoomType.PENDING and room.width == 1 and room.height == 1
+                def is_connected(map, new_room, room1, room2) -> bool:
+                    new_room_neighbors = map.get_neighbors(new_room)
+                    room1_neighbors = map.get_neighbors(room1)
+                    return (room2 in new_room_neighbors and room1 in new_room_neighbors) or \
+                        (room1 in new_room_neighbors and room2 in room1_neighbors)
+                def is_all_valid_to_merge(map, new_room, rooms) -> bool:
+                    print('rooms', type(rooms), rooms)
+                    room1 = rooms[0]
+                    room2 = rooms[1]
+                    return is_valid_to_merge(room1) and is_valid_to_merge(room2) and is_connected(map, new_room, room1, room2)
+                
+                furthur_mergeabla = None
+                if is_all_valid_to_merge(map, new_room, furthur_mergeabla_side_a) and is_all_valid_to_merge(map, new_room, furthur_mergeabla_side_b):
+                    furthur_mergeabla = random.choice((furthur_mergeabla_side_a, furthur_mergeabla_side_b))
+                elif is_all_valid_to_merge(map, new_room, furthur_mergeabla_side_a) :
+                    furthur_mergeabla = furthur_mergeabla_side_a
+                elif is_all_valid_to_merge(map, new_room, furthur_mergeabla_side_b):
+                    furthur_mergeabla = furthur_mergeabla_side_b
+                else:
+                    return 1
+
+                furthur_merge_room_a = self._merge_room(map, furthur_mergeabla[0], furthur_mergeabla[1])
+                self.add_step(map)
+                
+                furthur_merge_room = self._merge_room(map, new_room, furthur_merge_room_a)
+                self.add_step(map)
+                
+                self.count_2x2_room += 1
+                return 3
+        
+        return 1
+    
+    def _merge_room(self, map: Map, room1: Room, room2: Room) -> Room:
         same_col = room1.coordinate.x == room2.coordinate.x
         same_row = room1.coordinate.y == room2.coordinate.y
         
@@ -179,9 +270,17 @@ class MapGenerator:
             new_width = room1.width + room2.width
             new_height = max(room1.height, room2.height)
             new_coordinate = Coordinate(min(room1.coordinate.x, room2.coordinate.x), min(room1.coordinate.y, room2.coordinate.y))
+        else:
+            print('try to merge non-adjacent rooms')
+            print('room1', room1)
+            print('room2', room2)
+            return room1
         
         new_room = Room(new_coordinate, new_width, new_height, RoomType.PENDING)
         map.rooms.append(new_room)
+        
+        map.rooms.remove(room1)
+        map.rooms.remove(room2)
         
         new_edges = []
         for edge in map.edges:
@@ -192,26 +291,29 @@ class MapGenerator:
                 connect_room = room1
             elif edge.contains(room2):
                 connect_room = room2
-
-            if connect_room:
-                new_edges.append(Edge(
-                    new_room, connect_room.coordinate, 
-                    edge.get_other(connect_room), edge.get_room_coordinate(edge.get_other(connect_room))
-                ))
             else:
                 new_edges.append(edge)
+                continue
+            
+            other = edge.get_other(connect_room)
+            new_edges.append(Edge(
+                new_room, self._adjust_coordinate_for_edge(new_room, edge.get_room_coordinate(connect_room)), 
+                other, edge.get_room_coordinate(other)
+            ))
         map.edges = new_edges
-        
-        map.rooms.remove(room1)
-        map.rooms.remove(room2)
-        
-        self.add_step(map)
-        return True
+        return new_room
+    
+    def _adjust_coordinate_for_edge(self, room: Room, original_coord: Coordinate) -> Coordinate:
+        # Adjust the coordinate for the edge to match the new room's dimensions
+        if room.coordinate.x <= original_coord.x < room.coordinate.x + room.width and \
+            room.coordinate.y <= original_coord.y < room.coordinate.y + room.height:
+            return original_coord
+        return room.coordinate
 
     def bfs(self, map: Map, start: Room):
         queue = [start]
         visited = {start}
-        distance = {start: 0}
+        self.distance_from_start = {start: 0}
         
         while queue:
             current_room = queue.pop(0)
@@ -220,10 +322,9 @@ class MapGenerator:
                 if neighbor not in visited:
                     visited.add(neighbor)
                     queue.append(neighbor)
-                    distance[neighbor] = distance[current_room] + 1
-                    neighbor.description += str(distance[neighbor]) + '\n'
-        
-        self.distance_from_start = distance
+                    self.distance_from_start[neighbor] = self.distance_from_start[current_room] + 1
+                    neighbor.description += str(self.distance_from_start[neighbor]) + '\n'
+    
 
     def _coloring_room(self, map: Map) -> None:
         if map.start_room is None: return
@@ -255,6 +356,8 @@ class MapGenerator:
             if room.type != RoomType.PENDING: continue
             if room.width == 1 and room.height == 1 or self.distance_from_start[room] < 2:
                 room.type = RoomType.BATTLE
+            elif room.width == 2 and room.height == 2:
+                room.type = RoomType.ELITES
             else:
                 room.type = random.choice(non_leaf_room_choice)
                 non_leaf_room_choice.append(RoomType.BATTLE if room.type == RoomType.ELITES else RoomType.ELITES)
@@ -265,8 +368,19 @@ class MapGenerator:
         img = Renderer(map, self.config).render()
         self.imgs.append(img)
 
+    def _generator_report(self, map: Map) -> dict:
+        leaf_rooms = [room for room in map.rooms if len(map.get_neighbors(room)) == 1]
+        non_leaf_rooms = [room for room in map.rooms if room not in leaf_rooms]
+        
+        return {
+            'leaf_rooms': len(leaf_rooms),
+            'non_leaf_rooms': len(non_leaf_rooms),
+            'total_rooms': len(map.rooms),
+        }
+
 if __name__ == '__main__':
     config = GeneratorConfig(room_count=20, image_size=(800, 800))
     generator = MapGenerator(config)
     dungeon_map = generator.generate()
     Renderer(dungeon_map, config).render().show()
+

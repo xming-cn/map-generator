@@ -11,11 +11,11 @@ class Renderer:
         self.calculate_center_offset()
 
     def calculate_center_offset(self) -> None:
-        # Calculate the bounding box of all rooms
+        # Calculate the bounding box of all rooms, considering their size
         min_x = min(room.coordinate.x for room in self.map.rooms)
-        max_x = max(room.coordinate.x for room in self.map.rooms)
+        max_x = max(room.coordinate.x + room.width - 1 for room in self.map.rooms)
         min_y = min(room.coordinate.y for room in self.map.rooms)
-        max_y = max(room.coordinate.y for room in self.map.rooms)
+        max_y = max(room.coordinate.y + room.height - 1 for room in self.map.rooms)
 
         # Calculate the center of the bounding box
         map_center_x = (min_x + max_x) // 2
@@ -26,7 +26,7 @@ class Renderer:
         self.offset_y = -map_center_y * ROOM_LENGTH + self.config.image_size[1] // 2
 
     def render(self) -> Image.Image:
-        img = Image.new('RGB', (self.config.image_size[0], self.config.image_size[1]), 'white')
+        img = Image.new('RGBA', (self.config.image_size[0], self.config.image_size[1]), 'white')
         draw = ImageDraw.Draw(img)
         
         for edge in self.map.edges:
