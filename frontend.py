@@ -22,6 +22,7 @@ def regenerate_map(force=False):
         start_time = time.time()
         st.session_state.dungeon.generate()
         st.session_state.generation_time = time.time() - start_time
+        st.session_state.render_time = st.session_state.dungeon.render_time
         
 
 # 初始化 session_state
@@ -154,7 +155,7 @@ if auto_play:
         progress.progress(current_step / (len(st.session_state.dungeon.imgs) - 1))
         st.session_state.current_step = current_step
 
-progress_slot.text('generation time: {:.2f} ms'.format(st.session_state.generation_time*1000))
+progress_slot.text(f'generation time: {(st.session_state.generation_time - st.session_state.render_time) * 1000:.2f} ms')
 
 report = st.session_state.dungeon.report
 load_report(report)

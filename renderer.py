@@ -12,10 +12,10 @@ class Renderer:
 
     def calculate_center_offset(self) -> None:
         # Calculate the bounding box of all rooms, considering their size
-        min_x = min(room.coordinate.x for room in self.map.rooms)
-        max_x = max(room.coordinate.x + room.width - 1 for room in self.map.rooms)
-        min_y = min(room.coordinate.y for room in self.map.rooms)
-        max_y = max(room.coordinate.y + room.height - 1 for room in self.map.rooms)
+        min_x = min(room.coordinate.x for room in self.map.get_rooms())
+        max_x = max(room.coordinate.x + room.width - 1 for room in self.map.get_rooms())
+        min_y = min(room.coordinate.y for room in self.map.get_rooms())
+        max_y = max(room.coordinate.y + room.height - 1 for room in self.map.get_rooms())
 
         # Calculate the center of the bounding box
         map_center_x = (min_x + max_x) // 2
@@ -29,10 +29,10 @@ class Renderer:
         img = Image.new('RGBA', (self.config.image_size[0], self.config.image_size[1]), 'white')
         draw = ImageDraw.Draw(img)
         
-        for edge in self.map.edges:
+        for edge in self.map.get_edges():
             self.draw_edge(draw, edge)
         
-        for room in self.map.rooms:
+        for room in self.map.get_rooms():
             self.draw_room(draw, room)
         
         return img
@@ -64,7 +64,10 @@ if __name__ == "__main__":
     room2 = Room(Coordinate(1, 0), 1, 1, RoomType.BATTLE, "Battle Room")
     edge = Edge(room1, room1.coordinate, room2, room2.coordinate)
     
-    dungeon_map = Map([room1, room2], [edge])
+    dungeon_map = Map()
+    dungeon_map.add_room(room1)
+    dungeon_map.add_room(room2)
+    dungeon_map.add_edge(edge)
     config = GeneratorConfig(image_size=(800, 600))
     
     renderer = Renderer(dungeon_map, config)

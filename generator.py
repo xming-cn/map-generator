@@ -1,18 +1,20 @@
+import time
 from models import Map, Room, Edge, Coordinate, GeneratorConfig, RoomType
 from renderer import Renderer
-from dataclasses import dataclass
 from typing import Tuple, List, Optional
     
 import random
+
 class MapGenerator:
     def __init__(self, config: GeneratorConfig):
         self.config = config
         self.imgs = []
         self.count_1x3_room = 0
         self.count_2x2_room = 0
+        self.render_time = 0
 
     def generate(self) -> Map:
-        map = Map([], [])
+        map = Map()
         start_room = self._create_start_room(map)
         map.start_room = start_room
         mainroad_length, branch_length = self._calculate_road_lengths()
@@ -36,7 +38,7 @@ class MapGenerator:
     def _create_start_room(self, map: Map) -> Room:
         start_location = Coordinate(0, 1)
         start_room = Room(start_location, 1, 1, RoomType.START)
-        map.rooms.append(start_room)
+        map.add_room(start_room)
         self.add_step(map)
         return start_room
 
@@ -55,8 +57,8 @@ class MapGenerator:
             available_main_road_connections.remove((new_connection_location, room))
             
             new_room = Room(new_connection_location, 1, 1, RoomType.PENDING)
-            map.rooms.append(new_room)
-            map.edges.append(Edge(room, room.coordinate, new_room, new_room.coordinate))
+            map.add_room(new_room)
+            map.add_edge(Edge(room, room.coordinate, new_room, new_room.coordinate))
             
             available_next_coordinates = self._get_available_coordinates(map, new_connection_location, available_main_road_connections)
             if available_next_coordinates:
@@ -69,9 +71,9 @@ class MapGenerator:
             self.add_step(map)
 
     def _set_special_rooms(self, map: Map) -> None:
-        map.rooms[len(map.rooms) // 2].type = RoomType.REST
+        map.get_index_room(map.V // 2).type = RoomType.REST # type: ignore
         self.add_step(map)
-        map.rooms[-1].type = RoomType.BOSS
+        map.get_index_room(map.V - 1).type = RoomType.BOSS # type: ignore
         self.add_step(map)
 
     def _generate_branches(self, map: Map, branch_length: int, available_branch_locations: set) -> None:
@@ -87,8 +89,8 @@ class MapGenerator:
             if map.get_room(branch_location) is None:
                 # 创建第一个支线房间
                 new_branch_room = Room(branch_location, 1, 1, RoomType.PENDING)
-                map.rooms.append(new_branch_room)
-                map.edges.append(Edge(connected_room, connected_room.coordinate, new_branch_room, new_branch_room.coordinate))
+                map.add_room(new_branch_room)
+                map.add_edge(Edge(connected_room, connected_room.coordinate, new_branch_room, new_branch_room.coordinate))
                 self.add_step(map)
                 branches_created += 1
                 
@@ -101,8 +103,8 @@ class MapGenerator:
                     second_branch_location = self._get_second_branch_location(map, branch_location, available_branch_locations)
                     if second_branch_location:
                         second_branch_room = Room(second_branch_location, 1, 1, RoomType.PENDING)
-                        map.rooms.append(second_branch_room)
-                        map.edges.append(Edge(new_branch_room, new_branch_room.coordinate, second_branch_room, second_branch_room.coordinate))
+                        map.add_room(second_branch_room)
+                        map.add_edge(Edge(new_branch_room, new_branch_room.coordinate, second_branch_room, second_branch_room.coordinate))
                         branches_created += 1
                         self.add_step(map)
                         
@@ -135,7 +137,7 @@ class MapGenerator:
 
     def _find_connected_room(self, map: Map, location: Coordinate) -> Room:
         return next(
-            room for room in map.rooms
+            room for room in map.get_rooms()
             if any(
                 room.coordinate == Coordinate(location.x + dx, location.y + dy)
                 for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]
@@ -161,11 +163,13 @@ class MapGenerator:
             else: i += success
 
     def _merge_rooms_one(self, map: Map) -> int:
-        room1 = random.choice(map.rooms)
+        room1 = map.get_random_room()
+        if room1 is None: return 0
         neighbors = map.get_neighbors(room1)
+        print(f'neighbors of {room1} {neighbors}')
         if len(neighbors) <= 1: return 0
         
-        room2 = random.choice(list(neighbors))
+        room2 = random.choice(list(neighbors)).get_other(room1)
         
         if room1 == room2: return 0
         if room1.type != RoomType.PENDING or room2.type != RoomType.PENDING: return 0
@@ -192,13 +196,13 @@ class MapGenerator:
             
             if furthur_merge_policy == '1x3':
                 furthur_mergeabla = map.get_neighbors(new_room)
-                furthur_mergeabla = filter(lambda x: x.type == RoomType.PENDING and x.width == 1 and x.height == 1, furthur_mergeabla)
-                if same_col: furthur_mergeabla = filter(lambda x: x.coordinate.x == new_room.coordinate.x, furthur_mergeabla)
-                else:        furthur_mergeabla = filter(lambda x: x.coordinate.y == new_room.coordinate.y, furthur_mergeabla)
-                furthur_mergeabla = filter(lambda x: len(map.get_neighbors(x)) > 1, furthur_mergeabla)
+                furthur_mergeabla = filter(lambda x: x.get_other(new_room).type == RoomType.PENDING and x.get_other(new_room).width == 1 and x.get_other(new_room).height == 1, furthur_mergeabla)
+                if same_col: furthur_mergeabla = filter(lambda x: x.get_other(new_room).coordinate.x == new_room.coordinate.x, furthur_mergeabla)
+                else:        furthur_mergeabla = filter(lambda x: x.get_other(new_room).coordinate.y == new_room.coordinate.y, furthur_mergeabla)
+                furthur_mergeabla = filter(lambda x: len(map.get_neighbors(x.get_other(new_room))) > 1, furthur_mergeabla)
                 furthur_mergeabla = list(furthur_mergeabla)
                 if not furthur_mergeabla: return 2
-                furthur_merge = random.choice(furthur_mergeabla)
+                furthur_merge = random.choice(furthur_mergeabla).get_other(new_room)
                 furthur_new_room = self._merge_room(map, new_room, furthur_merge)
                 self.count_1x3_room += 1
                 self.add_step(map)
@@ -226,9 +230,9 @@ class MapGenerator:
                 
                 def is_valid_to_merge(room) -> bool:
                     return room is not None and room.type == RoomType.PENDING and room.width == 1 and room.height == 1
-                def is_connected(map, new_room, room1, room2) -> bool:
-                    new_room_neighbors = map.get_neighbors(new_room)
-                    room1_neighbors = map.get_neighbors(room1)
+                def is_connected(map: Map, new_room, room1, room2) -> bool:
+                    new_room_neighbors = [neighbor.get_other(new_room) for neighbor in map.get_neighbors(new_room)]
+                    room1_neighbors = [neighbor.get_other(room1) for neighbor in map.get_neighbors(room1)]
                     return (room2 in new_room_neighbors and room1 in new_room_neighbors) or \
                         (room1 in new_room_neighbors and room2 in room1_neighbors)
                 def is_all_valid_to_merge(map, new_room, rooms) -> bool:
@@ -247,7 +251,7 @@ class MapGenerator:
                 else:
                     return 1
 
-                furthur_merge_room_a = self._merge_room(map, furthur_mergeabla[0], furthur_mergeabla[1])
+                furthur_merge_room_a = self._merge_room(map, furthur_mergeabla[0], furthur_mergeabla[1]) # type: ignore
                 self.add_step(map)
                 
                 furthur_merge_room = self._merge_room(map, new_room, furthur_merge_room_a)
@@ -277,13 +281,10 @@ class MapGenerator:
             return room1
         
         new_room = Room(new_coordinate, new_width, new_height, RoomType.PENDING)
-        map.rooms.append(new_room)
-        
-        map.rooms.remove(room1)
-        map.rooms.remove(room2)
+        map.add_room(new_room)
         
         new_edges = []
-        for edge in map.edges:
+        for edge in map.get_edges():
             connect_room = None
             if edge.contains(room1) and edge.contains(room2):
                 continue
@@ -300,7 +301,10 @@ class MapGenerator:
                 new_room, self._adjust_coordinate_for_edge(new_room, edge.get_room_coordinate(connect_room)), 
                 other, edge.get_room_coordinate(other)
             ))
-        map.edges = new_edges
+        map.set_edges(new_edges)
+        
+        map.delete_room(room1)
+        map.delete_room(room2)
         return new_room
     
     def _adjust_coordinate_for_edge(self, room: Room, original_coord: Coordinate) -> Coordinate:
@@ -319,18 +323,18 @@ class MapGenerator:
             current_room = queue.pop(0)
             neighbors = map.get_neighbors(current_room)
             for neighbor in neighbors:
+                neighbor = neighbor.get_other(current_room)
                 if neighbor not in visited:
                     visited.add(neighbor)
                     queue.append(neighbor)
                     self.distance_from_start[neighbor] = self.distance_from_start[current_room] + 1
                     neighbor.description += str(self.distance_from_start[neighbor]) + '\n'
     
-
     def _coloring_room(self, map: Map) -> None:
         if map.start_room is None: return
         self.add_step(map)
         
-        pending_room = [room for room in map.rooms if room.type == RoomType.PENDING]
+        pending_room = [room for room in map.get_rooms() if room.type == RoomType.PENDING]
         pending_leaf_rooms = [room for room in pending_room if len(map.get_neighbors(room)) == 1]
         pending_non_leaf_rooms = [room for room in pending_room if room not in pending_leaf_rooms]
         
@@ -354,7 +358,7 @@ class MapGenerator:
         
         for room in pending_non_leaf_rooms:
             if room.type != RoomType.PENDING: continue
-            if room.width == 1 and room.height == 1 or self.distance_from_start[room] < 2:
+            if room.width == 1 and room.height == 1 or self.distance_from_start.get(room, 0) < 2:
                 room.type = RoomType.BATTLE
             elif room.width == 2 and room.height == 2:
                 room.type = RoomType.ELITES
@@ -363,19 +367,21 @@ class MapGenerator:
                 non_leaf_room_choice.append(RoomType.BATTLE if room.type == RoomType.ELITES else RoomType.ELITES)
 
             self.add_step(map)
-    
+      
     def add_step(self, map: Map) -> None:
+        start_render_time = time.time()
         img = Renderer(map, self.config).render()
         self.imgs.append(img)
+        self.render_time += time.time() - start_render_time
 
     def _generator_report(self, map: Map) -> dict:
-        leaf_rooms = [room for room in map.rooms if len(map.get_neighbors(room)) == 1]
-        non_leaf_rooms = [room for room in map.rooms if room not in leaf_rooms]
+        leaf_rooms = [room for room in map.get_rooms() if len(map.get_neighbors(room)) == 1]
+        non_leaf_rooms = [room for room in map.get_rooms() if room not in leaf_rooms]
         
         return {
             'leaf_rooms': len(leaf_rooms),
             'non_leaf_rooms': len(non_leaf_rooms),
-            'total_rooms': len(map.rooms),
+            'total_rooms': map.V,
         }
 
 if __name__ == '__main__':
